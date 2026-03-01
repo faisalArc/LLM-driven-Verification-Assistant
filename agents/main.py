@@ -1,6 +1,6 @@
 import os
 import asyncio
-from dotenv import load_dotenv
+from dotenv import load_dotenv # The library is python-dotenv, but the import command uses 'dotenv' while importing
 
 # 1. New imports for the updated AutoGen architecture
 from autogen_agentchat.agents import AssistantAgent

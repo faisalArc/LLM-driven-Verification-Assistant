@@ -1,0 +1,6 @@
+pyautogen
+crewai
+anthropic
+vcdvcd
+pyvcd
+python-dotenv

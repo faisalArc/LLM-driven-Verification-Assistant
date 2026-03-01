@@ -3,7 +3,6 @@
 This is a Multi modal LLM agent to assist with RTL Verification.
 VLSI Agentic Verification Environment - Setup Guide
 
-Based on the implementation advice from the architecture document, here is the breakdown of the required Python libraries for your project.
 
 1. Multi-Agent Frameworks
 
@@ -25,9 +24,12 @@ pyvcd: An alternative, robust library for reading and writing .vcd files.
 You can use either vcdvcd or pyvcd to build the required Python utility that converts binary waveform data into a text-based truth table so your Simulation Agent can read the exact port values at specific timestamps (e.g., 100ns to 120ns).
 
 Installation Instructions
-
-Ensure you have Python installed and are using a virtual environment.
-
 Run the following command in your terminal to install all dependencies:
 
+# Activate the conda environment
+conda activate llm_verification_agent 
+
+# Install dependencies distributed on PyPI
 pip install -r requirements.txt
+
+# After running the above commands, both pip and conda available for use depending on the package availability with that particular package manager

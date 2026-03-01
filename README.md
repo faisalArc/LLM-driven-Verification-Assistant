@@ -30,11 +30,14 @@ Run the following command in your terminal to install all dependencies:
 conda activate llm_verification_agent 
 
 # Install dependencies distributed on PyPI
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 
 # After running the above commands, both pip and conda available for use depending on the package availability with that particular package manager
 
 
 # Development Log
-
+# Linter Tool
 1. Created a linter_tool.py
+
+# Parses .vcd file into text in table format and outputs on the terminal.
+2. Created vcd_parser_tool.py

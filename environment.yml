@@ -1,0 +1,13 @@
+name: llm_veriification_agent
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      -package-name==verison
+
+
+
+  

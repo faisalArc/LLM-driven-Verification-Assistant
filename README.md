@@ -41,3 +41,6 @@ pip3 install -r requirements.txt
 
 # Parses .vcd file into text in table format and outputs on the terminal.
 2. Created vcd_parser_tool.py
+
+# main.py that integrates everything
+3. Created main.py file

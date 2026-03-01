@@ -1,5 +1,6 @@
-pyautogen
-crewai
+autogen_ext
+autogen_core
+tiktoken
 anthropic
 vcdvcd
 pyvcd

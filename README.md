@@ -33,3 +33,8 @@ conda activate llm_verification_agent
 pip install -r requirements.txt
 
 # After running the above commands, both pip and conda available for use depending on the package availability with that particular package manager
+
+
+# Development Log
+
+1. Created a linter_tool.py

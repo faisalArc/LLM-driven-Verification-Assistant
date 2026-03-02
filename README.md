@@ -35,7 +35,10 @@ pip3 install -r requirements.txt
 # After running the above commands, both pip and conda available for use depending on the package availability with that particular package manager
 
 
+
 # Development Log
+This is the first version of the agent 
+llm_verification_agent_v1
 # Linter Tool
 1. Created a linter_tool.py
 
@@ -50,3 +53,6 @@ pip3 install -r requirements.txt
 
 # Debug agent uses the inputs and outputs from various agents 
 5. Created debug_agent.py file
+
+# Integrated Everything
+6. Updated main.py so that it integrates everything. 

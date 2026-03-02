@@ -10,16 +10,12 @@ from autogen_agentchat.ui import Console
 from autogen_ext.models.anthropic import AnthropicChatCompletionClient
 
 # Import your custom tools
-from tool_scripts.linter_tool import run_linter
-from tool_scripts.simulator_tool import run_simulation
-from tool_scripts.vcd_parser_tool import parse_vcd_to_text
-
-# Import your specialized agents
-from agents.reference_model_agent import create_reference_model_agent
-from agents.debug_agent import create_debug_agent
+from linter_tool import run_linter
+from simulator_tool import run_simulation
+from vcd_parser_tool import parse_vcd_to_text
 
 # ==========================================
-# MODULE 1: File I/O Tools for Agents
+# MODULE 1: File I/O & Tool Wrappers
 # ==========================================
 def write_file(filepath: str, content: str) -> str:
     """Allows agents to write code or reports to the disk."""
@@ -30,7 +26,6 @@ def write_file(filepath: str, content: str) -> str:
         return f"Success: Wrote file to {filepath}"
     except Exception as e:
         return f"Error writing file: {str(e)}"
-# SUMMARY: This function acts as the "hands" for the agents, allowing them to save RTL code, testbenches, and reports to the file system.
 
 def read_file(filepath: str) -> str:
     """Allows agents to read existing files from the disk."""
@@ -39,109 +34,166 @@ def read_file(filepath: str) -> str:
             return f.read()
     except Exception as e:
         return f"Error reading file: {str(e)}"
-# SUMMARY: This function allows agents (like the Debug Agent or Supervisor) to ingest existing RTL code, specs, or logs from the file system.
 
 # ==========================================
-# MODULE 2: Core Agent Definitions
+# MODULE 2: Deterministic Routing Graph
 # ==========================================
-def create_supervisor_agent(model_client: AnthropicChatCompletionClient) -> AssistantAgent:
+def state_transition_graph(messages) -> str:
     """
-    Creates the Supervisor Agent.
-    Role: Analyzes the initial human prompt, sets the verification plan, and delegates tasks.
+    StateFlow Router: Bypasses the LLM to enforce strict transition logic.
+    Solves the Chain of Thought problem by hardcoding the verification pipeline.
     """
-    supervisor_system_message = """
-    You are the Lead VLSI Supervisor.
-    Your job is to read the user's initial Design Specification and RTL file.
+    if not messages:   # attribute of the state_trasition_graph function
+        return "Orchestrator_Agent"
+        
+    last_msg = messages[-1]
+    sender = last_msg.source
+    
+    # Safely extract message text
+    content = ""
+    if hasattr(last_msg, "content") and isinstance(last_msg.content, str):
+        content = last_msg.content.lower()
+        
+    # --- The State Machine Edges ---
+    if sender == "user":
+        return "Orchestrator_Agent"
+        
+    elif sender == "Orchestrator_Agent":
+        return "Reference_Model_Agent"
+        
+    elif sender == "Reference_Model_Agent":
+        return "Linter_Agent"
+        
+    elif sender == "Linter_Agent":
+        # Check if the Linter succeeded. If yes, move to Simulator.
+        if "success" in content or "no linting errors" in content:
+            return "Simulation_Agent"
+        # If the linter found errors, loop back to the Linter Agent so it can fix them
+        return "Linter_Agent"
+        
+    elif sender == "Simulation_Agent":
+        # If compilation fails, kick the testbench back to the Linter to fix syntax
+        if "compilation failed" in content:
+            return "Linter_Agent"
+        # If simulation runs successfully, move to Debug phase
+        return "Debug_Agent"
+        
+    elif sender == "Debug_Agent":
+        # Debug phase is over; send the report back to the Orchestrator 
+        # to generate a new Verification Plan and Testbench
+        return "Orchestrator_Agent"
+        
+    # Fallback safety net
+    return "Orchestrator_Agent"
+
+# ==========================================
+# MODULE 3: Coverage-Driven Agents
+# ==========================================
+def create_orchestrator(model_client) -> AssistantAgent:
+    system_message = """
+    You are the Lead Verification Orchestrator. 
+    Your goal is Coverage-Driven Verification (CDV).
     
     Process:
-    1. Output a high-level Verification Plan.
-    2. Instruct the 'Reference_Model_Agent' to build the Python golden model.
-    3. Instruct the 'Verification_Agent' to write the testbench and begin linting/simulation.
-    Do NOT write the code yourself; delegate to your team.
+    1. Read the initial Design Specification.
+    2. Write a SystemVerilog Testbench using `write_file` (save as 'work/tb_alu.sv'). 
+    3. DO NOT rewrite the RTL. Treat the RTL ('work/alu.sv') as a fixed Device Under Test.
+    4. When the Debug Agent returns a failure report, write an updated Testbench to fix the test bugs or hit new edge cases.
+    5. Once the Debug Agent confirms the test passes and coverage is hit, reply with exactly "TERMINATE".
     """
-    return AssistantAgent(
-        name="Supervisor_Agent",
-        model_client=model_client,
-        system_message=supervisor_system_message,
-        tools=[read_file]
-    )
-# SUMMARY: Initializes the Supervisor Agent, which acts as the project manager, reading specs and ordering the other agents to begin their specific tasks.
+    return AssistantAgent("Orchestrator_Agent", model_client, system_message, tools=[write_file, read_file])
 
-def create_verification_agent(model_client: AnthropicChatCompletionClient) -> AssistantAgent:
+def create_ref_model_agent(model_client) -> AssistantAgent:
+    system_message = """
+    You are the Reference Model Agent.
+    1. Read the Design Spec provided by the Orchestrator.
+    2. Use `write_file` to create a Golden Python Model at 'work/ref_model.py'.
+    3. Conclude your message with "Reference Model Generated." Do not output TERMINATE.
     """
-    Creates the Verification Agent.
-    Role: Writes Testbenches, runs Linters, runs Simulators, and fixes RTL bugs.
+    return AssistantAgent("Reference_Model_Agent", model_client, system_message, tools=[write_file])
+
+def create_linter_agent(model_client) -> AssistantAgent:
+    system_message = """
+    You are the Linter Agent. Your ONLY job is static analysis.
+    1. Run `run_linter(rtl_file)` on BOTH the RTL and Testbench files.
+    2. If there are syntax errors, use `write_file` to fix them.
+    3. Once there are no errors, output the exact phrase: "SUCCESS: No linting errors."
     """
-    verification_system_message = """
-    You are the Verification & RTL Fixer Agent.
-    
-    Process:
-    1. Wait for the Supervisor to provide the plan.
-    2. Write the SystemVerilog Testbench using the `write_file` tool.
-    3. Run `run_linter` on the RTL. Fix any syntax errors using `write_file`.
-    4. Run `run_simulation`. 
-    5. If simulation FAILS: Call the `parse_vcd_to_text` tool to get the waveform, then ask the 'Debug_Agent' to analyze the failure.
-    6. Once Debug_Agent provides a fix, rewrite the RTL and simulate again.
-    7. If simulation PASSES, reply with exactly "TERMINATE".
+    return AssistantAgent("Linter_Agent", model_client, system_message, tools=[run_linter, write_file])
+
+def create_simulation_agent(model_client) -> AssistantAgent:
+    system_message = """
+    You are the Simulation Agent. Your ONLY job is to extract execution data.
+    1. Run `run_simulation(tb_file, rtl_file)`.
+    2. If compilation fails, output "Compilation Failed".
+    3. If simulation succeeds, run `parse_vcd_to_text(vcd_file)` to extract the truth table.
+    4. Output the compilation logs AND the parsed VCD text.
+    Do not debug or rewrite code.
     """
-    return AssistantAgent(
-        name="Verification_Agent",
-        model_client=model_client,
-        system_message=verification_system_message,
-        tools=[write_file, read_file, run_linter, run_simulation, parse_vcd_to_text]
-    )
-# SUMMARY: Initializes the Verification Agent, which is the "workhorse" of the loop. It holds all the EDA tools, runs simulations, applies code fixes, and determines when the project is successfully finished.
+    return AssistantAgent("Simulation_Agent", model_client, system_message, tools=[run_simulation, parse_vcd_to_text])
+
+def create_debug_agent(model_client) -> AssistantAgent:
+    system_message = """
+    You are the Debug Agent. Your ONLY job is analysis.
+    1. Compare the VCD table provided by the Simulator against the Reference Model.
+    2. Write a markdown report using `write_file` (save as 'work/debug_report.md').
+    3. Conclude your message with "Debug Report Generated. Orchestrator, please review."
+    Do not output TERMINATE.
+    """
+    return AssistantAgent("Debug_Agent", model_client, system_message, tools=[write_file, read_file])
 
 # ==========================================
-# MODULE 3: Orchestration & Workflow Setup
+# MODULE 4: Orchestration & Execution
 # ==========================================
 async def main():
-    """Main Orchestrator function that initializes the environment and runs the Multi-Agent loop."""
     load_dotenv()
-    
-    # Setup working directory and dummy inputs for testing
     os.makedirs("work", exist_ok=True)
+    
+    # Dummy RTL (The Device Under Test)
+    test_file_path = "../work/alu.sv"
+    with open(test_file_path, "w") as f:
+        f.write("module alu(input clk, input d, output reg q);\n")
+        f.write("  always @(posedge clk) q <= d;\n") 
+        f.write("endmodule\n")
+
     initial_spec = "Design a simple ALU that acts as a D-Flip Flop (q <= d on posedge clk)."
     
-    # Setup the LLM Client
+    # Setup LLM
     model_client = AnthropicChatCompletionClient(
         model="claude-3-5-sonnet-20240620",
         api_key=os.environ.get("ANTHROPIC_API_KEY")
     )
 
-    # Instantiate all agents
-    supervisor = create_supervisor_agent(model_client)
-    ref_model_agent = create_reference_model_agent(model_client)
-    verification_agent = create_verification_agent(model_client)
+    # Initialize Team
+    orchestrator = create_orchestrator(model_client)
+    ref_agent = create_ref_model_agent(model_client)
+    linter_agent = create_linter_agent(model_client)
+    sim_agent = create_simulation_agent(model_client)
     debug_agent = create_debug_agent(model_client)
 
-    # Define Termination Conditions (Stop on success or after 30 interactions to save tokens)
+    # Stop on success or after 30 interactions 
     termination = TextMentionTermination("TERMINATE") | MaxMessageTermination(30)
 
-    # Create the SelectorGroupChat (The Conference Room)
-    # The SelectorGroupChat uses an LLM behind the scenes to decide who should speak next
-    # based on the conversation history (e.g., if Sim fails, it knows to route to the Debug Agent).
+    # Instantiate the Strict State Machine
     team = SelectorGroupChat(
-        participants=[supervisor, ref_model_agent, verification_agent, debug_agent],
+        participants=[orchestrator, ref_agent, linter_agent, sim_agent, debug_agent],
         model_client=model_client,
         termination_condition=termination,
+        selector_func=state_transition_graph, # Overrides the LLM with deterministic routing!
+        allow_repeated_speaker=True # Allows the Linter to loop back to itself if needed
     )
     
-    # The starting prompt from the Human Lead
     human_task = f"""
     HUMAN LEAD INPUT:
     Here is the Design Spec: {initial_spec}
-    The initial broken RTL is located at 'work/alu.sv'.
-    Supervisor_Agent, please review this and kick off the verification process!
+    The Device Under Test (RTL) is located at 'work/alu.sv'.
+    Orchestrator_Agent, generate the Verification Plan and Testbench!
     """
     
     print("==================================================")
-    print("Starting Multi-Agent VLSI Verification Loop...")
+    print("Starting Deterministic StateFlow Verification Loop")
     print("==================================================\n")
-    
-    # Run the team and stream the thought process to the console
     await Console(team.run_stream(task=human_task))
-# SUMMARY: The main asynchronous loop that creates the LLM client, instantiates the team of 4 agents, configures the intelligent routing (SelectorGroupChat), and kicks off the process with the human's initial spec.
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -44,3 +44,9 @@ pip3 install -r requirements.txt
 
 # main.py that integrates everything
 3. Created main.py file
+
+# Reference model agent creates a golder model which helps in debug process
+4. Created reference_model_agent.py file
+
+# Debug agent uses the inputs and outputs from various agents 
+5. Created debug_agent.py file
